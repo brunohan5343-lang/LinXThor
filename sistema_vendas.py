@@ -99,6 +99,10 @@ def buscar_dados_nuvem():
                 tabela = tabela.drop(columns=['Unnamed: 0'])
             if '' in tabela.columns:
                 tabela = tabela.drop(columns=[''])
+            
+            # Limpa o formato de data caso venha com horário ISO
+            if 'data' in tabela.columns:
+                tabela['data'] = pd.to_datetime(tabela['data'], errors='coerce').dt.strftime('%Y-%m-%d').fillna(tabela['data'].astype(str))
         else:
             tabela = pd.DataFrame(columns=['data', 'vendedor', 'produto', 'quantidade', 'valor'])
             
@@ -122,7 +126,6 @@ def buscar_dados_nuvem():
     except Exception:
         return None, None, None
 
-# Inicializa o cache no session_state para evitar lentidão a cada clique
 if 'tabela_cache' not in st.session_state:
     with st.spinner("🔄 Conectando ao Google Drive e carregando dados..."):
         tab, vend, prod = buscar_dados_nuvem()
@@ -140,12 +143,10 @@ vendedores_cadastrados = st.session_state['vendedores_cache']
 produtos_cadastrados = st.session_state['produtos_cache']
 
 def salvar_tudo(tabela_atual, vendedores_atuais, produtos_atuais):
-    # Atualiza a memória instantaneamente
     st.session_state['tabela_cache'] = tabela_atual
     st.session_state['vendedores_cache'] = vendedores_atuais
     st.session_state['produtos_cache'] = produtos_atuais
     
-    # Envia para a nuvem em background
     tabela_limpa = tabela_atual.copy()
     if 'Unnamed: 0' in tabela_limpa.columns:
         tabela_limpa = tabela_limpa.drop(columns=['Unnamed: 0'])
@@ -161,7 +162,7 @@ def salvar_tudo(tabela_atual, vendedores_atuais, produtos_atuais):
     try:
         requests.post(APPS_SCRIPT_URL, json=payload, timeout=15)
     except Exception:
-        pass # Evita travar a interface se houver oscilação de rede
+        pass
 
 # --- FUNÇÕES DE MANIPULAÇÃO E CONSULTA PARA O CHATBOT (TOOLS) ---
 
@@ -197,15 +198,17 @@ def consultar_dados(filtro_vendedor=None, filtro_produto=None, filtro_data=None)
 
 def cadastrar_venda(data, vendedor, produto, quantidade, valor):
     global tabela, vendedores_cadastrados, produtos_cadastrados
-    nova_venda = pd.DataFrame([[str(data), vendedor, produto, int(quantidade), float(valor)]], columns=['data', 'vendedor', 'produto', 'quantidade', 'valor'])
+    data_formatada = pd.to_datetime(data).strftime('%Y-%m-%d') if pd.notna(data) else str(data)
+    nova_venda = pd.DataFrame([[data_formatada, vendedor, produto, int(quantidade), float(valor)]], columns=['data', 'vendedor', 'produto', 'quantidade', 'valor'])
     tabela = pd.concat([tabela, nova_venda], ignore_index=True)
     salvar_tudo(tabela, vendedores_cadastrados, produtos_cadastrados)
-    return f"Venda cadastrada com sucesso: {quantidade}x {produto} por {vendedor} em {data} (Valor: R$ {valor})."
+    return f"Venda cadastrada com sucesso: {quantidade}x {produto} por {vendedor} em {data_formatada} (Valor: R$ {valor})."
 
 def editar_venda(indice, data, vendedor, produto, quantidade, valor):
     global tabela, vendedores_cadastrados, produtos_cadastrados
     if indice in tabela.index:
-        tabela.loc[indice] = [str(data), vendedor, produto, int(quantidade), float(valor)]
+        data_formatada = pd.to_datetime(data).strftime('%Y-%m-%d') if pd.notna(data) else str(data)
+        tabela.loc[indice] = [data_formatada, vendedor, produto, int(quantidade), float(valor)]
         salvar_tudo(tabela, vendedores_cadastrados, produtos_cadastrados)
         return f"Venda de índice {indice} atualizada com sucesso."
     return f"Erro: Índice de venda {indice} não encontrado."
@@ -461,7 +464,6 @@ st.write('---')
 st.sidebar.markdown("### ⚙️ Painel de Controle (Manual)")
 st.sidebar.markdown("---")
 
-# Botão de Sincronização Manual na Sidebar
 if st.sidebar.button("🔄 Sincronizar com o Google Drive"):
     with st.spinner("Atualizando com a nuvem..."):
         tab, vend, prod = buscar_dados_nuvem()
@@ -498,7 +500,8 @@ if modulo == 'Venda' and acao == 'Cadastrar':
     botao_cadastrar = st.sidebar.button('Cadastrar nova venda')
 
     if botao_cadastrar:
-        nova_venda = pd.DataFrame([[str(data), vendedor, produto, quantidade, valor]], columns=['data', 'vendedor', 'produto', 'quantidade', 'valor'])
+        data_formatada = pd.to_datetime(data).strftime('%Y-%m-%d')
+        nova_venda = pd.DataFrame([[data_formatada, vendedor, produto, quantidade, valor]], columns=['data', 'vendedor', 'produto', 'quantidade', 'valor'])
         tabela = pd.concat([tabela, nova_venda], ignore_index=True)
         salvar_tudo(tabela, vendedores_cadastrados, produtos_cadastrados)
         st.success('Venda cadastrada com sucesso!')
@@ -527,7 +530,8 @@ elif modulo == 'Venda' and acao == 'Editar':
         botao_editar = st.sidebar.button('Salvar Alterações')
 
         if botao_editar:
-            tabela.loc[indice_edicao] = [str(novo_data), novo_vendedor, novo_produto, nova_quantidade, novo_valor]
+            data_formatada = pd.to_datetime(novo_data).strftime('%Y-%m-%d')
+            tabela.loc[indice_edicao] = [data_formatada, novo_vendedor, novo_produto, nova_quantidade, novo_valor]
             salvar_tudo(tabela, vendedores_cadastrados, produtos_cadastrados)
             st.success('Venda atualizada com sucesso!')
             st.rerun()
