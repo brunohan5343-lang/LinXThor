@@ -454,7 +454,7 @@ with col_logo:
         st.image(img_capa, width=160)
 
 with col_titulo:
-    st.markdown('# 🛡️ Sistema LinXThor')
+    st.markdown('# 🛡️ Sistema LinXThor, Presidenta Bárbara !!!')
     st.markdown('_LinXThor é a perspicácia do lince, que enxerga longe, e a força inabalável do Thor, que juntos sustentam seu negócio rumo ao topo._')
 
 st.write('---')
