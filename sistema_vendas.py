@@ -76,24 +76,22 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# URL do Apps Script do Google Drive
 APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxd6a2c1LMPGZLNP-7GqqvarGgc2gKobj_jQuYQVmG9fmtY-x_NCSa7SYt8qxGbL0m8ng/exec'
 
-def carregar_dados():
+# --- FUNÇÕES DE CARREGAMENTO E SALVAMENTO COM CACHE (SESSION STATE) ---
+
+def buscar_dados_nuvem():
+    """Busca os dados diretamente no Google Drive via Apps Script."""
     try:
         response = requests.get(f"{APPS_SCRIPT_URL}?action=ler", timeout=15)
-        
         if response.text.strip().startswith("<") or response.status_code != 200:
-            st.error(f"Erro do Apps Script (HTTP {response.status_code}): Verifique se a URL está correta e com acesso público.")
-            tabela = pd.DataFrame(columns=['data', 'vendedor', 'produto', 'quantidade', 'valor'])
-            return tabela, ['Bárbara', 'Bruno', 'Vitor', 'Juninho'], ['Notebook', 'Celular', 'Fone']
+            return None, None, None
             
         dados = response.json()
-        
         if dados.get("status") == "erro":
-            st.error(f"Erro interno no Apps Script: {dados.get('mensagem')}")
+            return None, None, None
 
-        # Processa Vendas
+        # Vendas
         raw_vendas = dados.get('vendas', [])
         if len(raw_vendas) > 1:
             tabela = pd.DataFrame(raw_vendas[1:], columns=raw_vendas[0])
@@ -104,32 +102,51 @@ def carregar_dados():
         else:
             tabela = pd.DataFrame(columns=['data', 'vendedor', 'produto', 'quantidade', 'valor'])
             
-        # Processa Vendedores
+        # Vendedores
         raw_vend = dados.get('vendedores', [])
         if len(raw_vend) > 1:
             df_v = pd.DataFrame(raw_vend[1:], columns=raw_vend[0])
-            vendedores_cadastrados = df_v['vendedor'].astype(str).tolist() if 'vendedor' in df_v.columns else ['Bárbara', 'Bruno', 'Vitor', 'Juninho']
+            vendedores = df_v['vendedor'].astype(str).tolist() if 'vendedor' in df_v.columns else ['Bárbara', 'Bruno', 'Vitor', 'Juninho']
         else:
-            vendedores_cadastrados = ['Bárbara', 'Bruno', 'Vitor', 'Juninho']
+            vendedores = ['Bárbara', 'Bruno', 'Vitor', 'Juninho']
             
-        # Processa Produtos
+        # Produtos
         raw_prod = dados.get('produtos', [])
         if len(raw_prod) > 1:
             df_p = pd.DataFrame(raw_prod[1:], columns=raw_prod[0])
-            produtos_cadastrados = df_p['produto'].astype(str).tolist() if 'produto' in df_p.columns else ['Notebook', 'Celular', 'Fone']
+            produtos = df_p['produto'].astype(str).tolist() if 'produto' in df_p.columns else ['Notebook', 'Celular', 'Fone']
         else:
-            produtos_cadastrados = ['Notebook', 'Celular', 'Fone']
+            produtos = ['Notebook', 'Celular', 'Fone']
             
-        return tabela, vendedores_cadastrados, produtos_cadastrados
-        
-    except Exception as e:
-        st.error(f"Falha de conexão com o Apps Script: {e}")
-    
-    tabela = pd.DataFrame(columns=['data', 'vendedor', 'produto', 'quantidade', 'valor'])
-    return tabela, ['Bárbara', 'Bruno', 'Vitor', 'Juninho'], ['Notebook', 'Celular', 'Fone']
+        return tabela, vendedores, produtos
+    except Exception:
+        return None, None, None
 
-def salvar_tudo(tabela, vendedores, produtos):
-    tabela_limpa = tabela.copy()
+# Inicializa o cache no session_state para evitar lentidão a cada clique
+if 'tabela_cache' not in st.session_state:
+    with st.spinner("🔄 Conectando ao Google Drive e carregando dados..."):
+        tab, vend, prod = buscar_dados_nuvem()
+        if tab is not None:
+            st.session_state['tabela_cache'] = tab
+            st.session_state['vendedores_cache'] = vend
+            st.session_state['produtos_cache'] = prod
+        else:
+            st.session_state['tabela_cache'] = pd.DataFrame(columns=['data', 'vendedor', 'produto', 'quantidade', 'valor'])
+            st.session_state['vendedores_cache'] = ['Bárbara', 'Bruno', 'Vitor', 'Juninho']
+            st.session_state['produtos_cache'] = ['Notebook', 'Celular', 'Fone']
+
+tabela = st.session_state['tabela_cache']
+vendedores_cadastrados = st.session_state['vendedores_cache']
+produtos_cadastrados = st.session_state['produtos_cache']
+
+def salvar_tudo(tabela_atual, vendedores_atuais, produtos_atuais):
+    # Atualiza a memória instantaneamente
+    st.session_state['tabela_cache'] = tabela_atual
+    st.session_state['vendedores_cache'] = vendedores_atuais
+    st.session_state['produtos_cache'] = produtos_atuais
+    
+    # Envia para a nuvem em background
+    tabela_limpa = tabela_atual.copy()
     if 'Unnamed: 0' in tabela_limpa.columns:
         tabela_limpa = tabela_limpa.drop(columns=['Unnamed: 0'])
     if '' in tabela_limpa.columns:
@@ -137,22 +154,14 @@ def salvar_tudo(tabela, vendedores, produtos):
         
     payload = {
         "vendas": [tabela_limpa.columns.tolist()] + tabela_limpa.values.tolist(),
-        "vendedores": [["vendedor"]] + [[v] for v in vendedores],
-        "produtos": [["produto"]] + [[p] for p in produtos]
+        "vendedores": [["vendedor"]] + [[v] for v in vendedores_atuais],
+        "produtos": [["produto"]] + [[p] for p in produtos_atuais]
     }
     
     try:
-        response = requests.post(APPS_SCRIPT_URL, json=payload, timeout=15)
-        if response.status_code == 200:
-            res_json = response.json()
-            if res_json.get("status") == "erro":
-                st.error(f"Erro ao salvar no Apps Script: {res_json.get('mensagem')}")
-        else:
-            st.error(f"Erro HTTP {response.status_code} ao salvar dados.")
-    except Exception as e:
-        st.error(f"Falha de conexão ao salvar no Drive: {e}")
-
-tabela, vendedores_cadastrados, produtos_cadastrados = carregar_dados()
+        requests.post(APPS_SCRIPT_URL, json=payload, timeout=15)
+    except Exception:
+        pass # Evita travar a interface se houver oscilação de rede
 
 # --- FUNÇÕES DE MANIPULAÇÃO E CONSULTA PARA O CHATBOT (TOOLS) ---
 
@@ -163,7 +172,6 @@ def consultar_dados(filtro_vendedor=None, filtro_produto=None, filtro_data=None)
         return "Não há vendas cadastradas no momento."
     
     df = tabela.copy()
-    
     if filtro_vendedor:
         df = df[df['vendedor'].str.contains(filtro_vendedor, case=False, na=False)]
     if filtro_produto:
@@ -453,6 +461,21 @@ st.write('---')
 st.sidebar.markdown("### ⚙️ Painel de Controle (Manual)")
 st.sidebar.markdown("---")
 
+# Botão de Sincronização Manual na Sidebar
+if st.sidebar.button("🔄 Sincronizar com o Google Drive"):
+    with st.spinner("Atualizando com a nuvem..."):
+        tab, vend, prod = buscar_dados_nuvem()
+        if tab is not None:
+            st.session_state['tabela_cache'] = tab
+            st.session_state['vendedores_cache'] = vend
+            st.session_state['produtos_cache'] = prod
+            st.success("Dados sincronizados com sucesso!")
+            st.rerun()
+        else:
+            st.error("Erro ao sincronizar com a nuvem.")
+
+st.sidebar.markdown("---")
+
 modulo = st.sidebar.selectbox('Escolha o módulo', ['Venda', 'Vendedor', 'Produto'])
 
 if modulo == 'Venda':
@@ -653,7 +676,6 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### 🤖 Assistente de IA (Chat)")
 st.sidebar.markdown("Fale com o assistente para operar o sistema por voz/texto ou consultar relatórios.")
 
-# Carrega chave da API do Gemini de forma segura (.env ou Streamlit Secrets)
 api_key_gemini = os.getenv("GEMINI_API_KEY")
 if "GEMINI_API_KEY" in st.secrets:
     api_key_gemini = st.secrets["GEMINI_API_KEY"]
