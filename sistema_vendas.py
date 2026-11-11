@@ -5,6 +5,7 @@ from PIL import Image
 import os
 import json
 import requests
+from datetime import datetime
 from openai import OpenAI
 
 st.set_page_config(
@@ -100,7 +101,6 @@ def buscar_dados_nuvem():
             if '' in tabela.columns:
                 tabela = tabela.drop(columns=[''])
             
-            # Limpa o formato de data caso venha com horário ISO
             if 'data' in tabela.columns:
                 tabela['data'] = pd.to_datetime(tabela['data'], errors='coerce').dt.strftime('%Y-%m-%d').fillna(tabela['data'].astype(str))
         else:
@@ -313,7 +313,7 @@ declaracao_ferramentas = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "data": {"type": "string", "description": "Data no formato AAAA-MM-DD"},
+                    "data": {"type": "string", "description": f"Data no formato AAAA-MM-DD. Se o usuário disser 'hoje', use a data atual: {datetime.now().strftime('%Y-%m-%d')}."},
                     "vendedor": {"type": "string", "description": f"Nome do vendedor. Opções válidas: {vendedores_cadastrados}"},
                     "produto": {"type": "string", "description": f"Nome do produto. Opções válidas: {produtos_cadastrados}"},
                     "quantidade": {"type": "integer", "description": "Quantidade vendida"},
@@ -689,11 +689,13 @@ cliente_ia = OpenAI(
     base_url='https://generativelanguage.googleapis.com/v1beta/openai/'
 )
 
+data_hoje_atual = datetime.now().strftime('%Y-%m-%d')
+
 if 'lista_mensagens' not in st.session_state:
     st.session_state['lista_mensagens'] = [
         {
             "role": "system", 
-            "content": f"Você é o assistente inteligente do sistema LinXThor. Vendedores atuais: {vendedores_cadastrados}. Produtos atuais: {produtos_cadastrados}. Vendas atuais cadastradas (índices): {list(tabela.index) if not tabela.empty else 'Nenhuma'}. Sempre que o usuário fizer perguntas analíticas sobre relatórios, faturamento, quantidade de vendas, desempenho de vendedores ou produtos, utilize a ferramenta 'consultar_dados' para buscar as informações reais antes de responder."
+            "content": f"Você é o assistente inteligente do sistema LinXThor. A data de HOJE é: {data_hoje_atual}. Vendedores atuais: {vendedores_cadastrados}. Produtos atuais: {produtos_cadastrados}. Vendas atuais cadastradas (índices): {list(tabela.index) if not tabela.empty else 'Nenhuma'}. Sempre que o usuário mencionar 'hoje', utilize obrigatoriamente a data {data_hoje_atual}. Sempre que fizer perguntas analíticas sobre relatórios, faturamento, quantidade de vendas, desempenho de vendedores ou produtos, utilize a ferramenta 'consultar_dados' antes de responder."
         }
     ]
 
@@ -738,60 +740,4 @@ if mensagem_usuario:
                     "content": str(resultado_funcao)
                 })
 
-        segunda_resposta = cliente_ia.chat.completions.create(
-            messages=st.session_state['lista_mensagens'],
-            model='gemini-flash-lite-latest'
-        )
-        
-        resposta_ia = segunda_resposta.choices[0].message.content
-        st.session_state['lista_mensagens'].append({'role': 'assistant', 'content': resposta_ia})
-        
-        with st.sidebar.chat_message('assistant'):
-            st.sidebar.write(resposta_ia)
-            
-        st.rerun()
-
-    else:
-        resposta_ia = mensagem_resposta.content
-        if resposta_ia:
-            st.session_state['lista_mensagens'].append({'role': 'assistant', 'content': resposta_ia})
-            with st.sidebar.chat_message('assistant'):
-                st.sidebar.write(resposta_ia)
-
-
-# --- CORPO PRINCIPAL DO SISTEMA (Tabelas e Gráficos) ---
-
-st.write('## 📋 Vendas Cadastradas')
-st.dataframe(tabela, use_container_width=True)
-
-st.write('## 📈 Dashboard')
-
-if not tabela.empty:
-    soma = tabela['valor'].sum()
-    soma_formatada = f'{soma:,.2f}'.replace(',', 'x').replace('.', ',').replace('x', '.')
-    st.metric('Faturamento Total', f'R$ {soma_formatada}')
-
-    st.write('### Faturamento por Vendedor')
-
-    fat_vendedor = tabela.groupby('vendedor')['valor'].sum().reset_index()
-    fat_vendedor = fat_vendedor.sort_values(by='valor', ascending=False).reset_index(drop=True)
-
-    fat_vendedor.insert(0, 'Colocação', [f'{i+1}º lugar' for i in range(len(fat_vendedor))])
-
-    fat_vendedor['valor'] = fat_vendedor['valor'].apply(
-        lambda x: f'R$ {x:,.2f}'.replace(',', 'x').replace('.', ',').replace('x', '.'))
-
-    fat_vendedor.columns = ['Colocação', 'Vendedor(a)', 'Faturamento Total']
-
-    st.dataframe(fat_vendedor, hide_index=True, use_container_width=True)
-
-    col_graf1, col_graf2 = st.columns(2)
-    with col_graf1:
-        grafico1 = px.bar(tabela, x='vendedor', y='valor', color='produto', title="Faturamento por Vendedor e Produto")
-        st.plotly_chart(grafico1, use_container_width=True)
-
-    with col_graf2:
-        grafico2 = px.pie(tabela, names='produto', values='valor', hole=0.5, title="Participação por Produto")
-        st.plotly_chart(grafico2, use_container_width=True)
-else:
-    st.info('Cadastre sua primeira venda para visualizar o dashboard.')
+        segunda_resposta =
