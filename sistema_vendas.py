@@ -464,17 +464,17 @@ st.write('---')
 st.sidebar.markdown("### ⚙️ Painel de Controle (Manual)")
 st.sidebar.markdown("---")
 
-if st.sidebar.button("🔄 Sincronizar com o Google Drive"):
-    with st.spinner("Atualizando com a nuvem..."):
+if st.sidebar.button("🔄 Sincronizar com a base de dados"):
+    with st.spinner("Atualizando com a base de dados..."):
         tab, vend, prod = buscar_dados_nuvem()
         if tab is not None:
             st.session_state['tabela_cache'] = tab
             st.session_state['vendedores_cache'] = vend
             st.session_state['produtos_cache'] = prod
-            st.success("Dados sincronizados com sucesso!")
+            st.success("Base de dados sincronizada com sucesso!")
             st.rerun()
         else:
-            st.error("Erro ao sincronizar com a nuvem.")
+            st.error("Erro ao sincronizar com a base de dados.")
 
 st.sidebar.markdown("---")
 
