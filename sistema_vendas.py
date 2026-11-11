@@ -740,4 +740,60 @@ if mensagem_usuario:
                     "content": str(resultado_funcao)
                 })
 
-        segunda_resposta =
+        segunda_resposta = cliente_ia.chat.completions.create(
+            messages=st.session_state['lista_mensagens'],
+            model='gemini-flash-lite-latest'
+        )
+        
+        resposta_ia = segunda_resposta.choices[0].message.content
+        st.session_state['lista_mensagens'].append({'role': 'assistant', 'content': resposta_ia})
+        
+        with st.sidebar.chat_message('assistant'):
+            st.sidebar.write(resposta_ia)
+            
+        st.rerun()
+
+    else:
+        resposta_ia = mensagem_resposta.content
+        if resposta_ia:
+            st.session_state['lista_mensagens'].append({'role': 'assistant', 'content': resposta_ia})
+            with st.sidebar.chat_message('assistant'):
+                st.sidebar.write(resposta_ia)
+
+
+# --- CORPO PRINCIPAL DO SISTEMA (Tabelas e Gráficos) ---
+
+st.write('## 📋 Vendas Cadastradas')
+st.dataframe(tabela, use_container_width=True)
+
+st.write('## 📈 Dashboard')
+
+if not tabela.empty:
+    soma = tabela['valor'].sum()
+    soma_formatada = f'{soma:,.2f}'.replace(',', 'x').replace('.', ',').replace('x', '.')
+    st.metric('Faturamento Total', f'R$ {soma_formatada}')
+
+    st.write('### Faturamento por Vendedor')
+
+    fat_vendedor = tabela.groupby('vendedor')['valor'].sum().reset_index()
+    fat_vendedor = fat_vendedor.sort_values(by='valor', ascending=False).reset_index(drop=True)
+
+    fat_vendedor.insert(0, 'Colocação', [f'{i+1}º lugar' for i in range(len(fat_vendedor))])
+
+    fat_vendedor['valor'] = fat_vendedor['valor'].apply(
+        lambda x: f'R$ {x:,.2f}'.replace(',', 'x').replace('.', ',').replace('x', '.'))
+
+    fat_vendedor.columns = ['Colocação', 'Vendedor(a)', 'Faturamento Total']
+
+    st.dataframe(fat_vendedor, hide_index=True, use_container_width=True)
+
+    col_graf1, col_graf2 = st.columns(2)
+    with col_graf1:
+        grafico1 = px.bar(tabela, x='vendedor', y='valor', color='produto', title="Faturamento por Vendedor e Produto")
+        st.plotly_chart(grafico1, use_container_width=True)
+
+    with col_graf2:
+        grafico2 = px.pie(tabela, names='produto', values='valor', hole=0.5, title="Participação por Produto")
+        st.plotly_chart(grafico2, use_container_width=True)
+else:
+    st.info('Cadastre sua primeira venda para visualizar o dashboard.')
